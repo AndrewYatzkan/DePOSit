@@ -11,14 +11,14 @@ class ModelMain(nn.Module):
         super().__init__()
         self.device = device
         self.target_dim = target_dim
+        self.config = config
 
         self.emb_time_dim = config["model"]["timeemb"]
         self.emb_feature_dim = config["model"]["featureemb"]
-        self.is_unconditional = config["model"]["is_unconditional"]
 
         self.emb_total_dim = self.emb_time_dim + self.emb_feature_dim
-        if not self.is_unconditional:
-            self.emb_total_dim += 1  # for conditional mask
+        self.emb_total_dim += 1  # for conditional mask
+
         self.embed_layer = nn.Embedding(
             num_embeddings=self.target_dim, embedding_dim=self.emb_feature_dim
         )
@@ -26,7 +26,7 @@ class ModelMain(nn.Module):
         config_diff = config["diffusion"]
         config_diff["side_dim"] = self.emb_total_dim
 
-        input_dim = 1 if self.is_unconditional else 2
+        input_dim = 2
         self.diffmodel = diff_CSDI(config_diff, input_dim)
 
         # parameters for diffusion models
@@ -90,9 +90,8 @@ class ModelMain(nn.Module):
         side_info = torch.cat([time_embed, feature_embed], dim=-1)  # (B,L,K,*)
         side_info = side_info.permute(0, 3, 2, 1)  # (B,*,K,L)
 
-        if not self.is_unconditional:
-            side_mask = cond_mask.unsqueeze(1)  # (B,1,K,L)
-            side_info = torch.cat([side_info, side_mask], dim=1)
+        side_mask = cond_mask.unsqueeze(1)  # (B,1,K,L)
+        side_info = torch.cat([side_info, side_mask], dim=1)
 
         return side_info
 
@@ -130,12 +129,9 @@ class ModelMain(nn.Module):
         return loss
 
     def set_input_to_diffmodel(self, noisy_data, observed_data, cond_mask):
-        if self.is_unconditional:
-            total_input = noisy_data.unsqueeze(1)  # (B,1,K,L)
-        else:
-            cond_obs = (cond_mask * observed_data).unsqueeze(1)
-            noisy_target = ((1 - cond_mask) * noisy_data).unsqueeze(1)
-            total_input = torch.cat([cond_obs, noisy_target], dim=1)  # (B,2,K,L)
+        cond_obs = (cond_mask * observed_data).unsqueeze(1)
+        noisy_target = ((1 - cond_mask) * noisy_data).unsqueeze(1)
+        total_input = torch.cat([cond_obs, noisy_target], dim=1)  # (B,2,K,L)
 
         return total_input
 
@@ -145,25 +141,13 @@ class ModelMain(nn.Module):
         imputed_samples = torch.zeros(B, n_samples, K, L).to(self.device)
 
         for i in range(n_samples):
-            # generate noisy observation for unconditional model
-            if self.is_unconditional:
-                noisy_obs = observed_data
-                noisy_cond_history = []
-                for t in range(self.num_steps):
-                    noise = torch.randn_like(noisy_obs)
-                    noisy_obs = (self.alpha_hat[t] ** 0.5) * noisy_obs + self.beta[t] ** 0.5 * noise
-                    noisy_cond_history.append(noisy_obs * cond_mask)
-
             current_sample = torch.randn_like(observed_data)
 
             for t in range(self.num_steps - 1, -1, -1):
-                if self.is_unconditional:
-                    diff_input = cond_mask * noisy_cond_history[t] + (1.0 - cond_mask) * current_sample
-                    diff_input = diff_input.unsqueeze(1)  # (B,1,K,L)
-                else:
-                    cond_obs = (cond_mask * observed_data).unsqueeze(1)
-                    noisy_target = ((1 - cond_mask) * current_sample).unsqueeze(1)
-                    diff_input = torch.cat([cond_obs, noisy_target], dim=1)  # (B,2,K,L)
+                cond_obs = (cond_mask * observed_data).unsqueeze(1)
+                noisy_target = ((1 - cond_mask) * current_sample).unsqueeze(1)
+                diff_input = torch.cat([cond_obs, noisy_target], dim=1)  # (B,2,K,L)
+                
                 predicted = self.diffmodel(diff_input, side_info, torch.tensor([t]).to(self.device))
 
                 coeff1 = 1 / self.alpha_hat[t] ** 0.5
