@@ -4,6 +4,7 @@ import time
 import torch
 import torch.nn as nn
 import numpy as np
+from visualize import set_visualization
 from utils.diffusion_util import diff_CSDI
 
 
@@ -13,6 +14,8 @@ class ModelMain(nn.Module):
         self.device = device
         self.target_dim = target_dim
         self.config = config
+        self.viz_freq = config['train']['visualization_frequency']
+        self.viz_n = 0
 
         self.emb_time_dim = config["model"]["timeemb"]
         self.emb_feature_dim = config["model"]["featureemb"]
@@ -130,6 +133,16 @@ class ModelMain(nn.Module):
 
         time_elapsed = time.time() - time_start
         print(f"time to calculate loss: {time_elapsed}")
+
+        self.viz_n += 1
+        if self.viz_freq > 0 and self.viz_n % self.viz_freq == 0:
+            # residual_viz = residual.detach()[0].reshape(L, K // 3, 3)[np.newaxis, ...]
+            raw_viz = observed_data.detach()[0].reshape(L, K // 3, 3)[np.newaxis, ...]
+            # noisy_viz = noisy_data.detach()[0].reshape(L, K // 3, 3)[np.newaxis, ...]
+            denoised_data = noisy_data - predicted
+            denoised_viz = denoised_data.detach()[0].reshape(L, K // 3, 3)[np.newaxis, ...]
+
+            set_visualization([raw_viz, denoised_viz])
 
         num_eval = target_mask.sum()
         loss = (residual ** 2).sum() / (num_eval if num_eval > 0 else 1)
