@@ -184,6 +184,37 @@ class ModelMain(nn.Module):
             imputed_samples[:, i] = (current_sample * (1 - cond_mask) + observed_data * cond_mask).detach()
         return imputed_samples
 
+    def impute_ddim(self, observed_data, cond_mask, side_info, n_samples):
+        n_samples = 1 # Starting with 1
+
+        B, K, L = observed_data.shape
+        imputed_samples = torch.zeros(B, n_samples, K, L).to(self.device)
+
+        for i in range(n_samples):
+            current_sample = torch.randn_like(observed_data)  # Initial random sample
+            for t in range(self.num_steps - 1, -1, -1):
+            
+                cond_obs = (cond_mask * observed_data).unsqueeze(1)
+                noisy_target = ((1 - cond_mask) * current_sample).unsqueeze(1)
+                diff_input = torch.cat([cond_obs, noisy_target], dim=1)
+
+                predicted = self.diffmodel(diff_input, side_info, torch.tensor([t]).to(self.device))
+                
+                # Apply DDIM step here instead of DDPM's noise application
+                current_sample = self.deterministic_update_function(current_sample, predicted, t)
+
+            imputed_samples[:, i] = (current_sample * (1 - cond_mask) + observed_data * cond_mask).detach()
+        return imputed_samples
+
+    def deterministic_update_function(self, state, pred_noise, t):
+        at = self.alpha[t]
+        at_minus_1 = self.alpha[t-1] if t > 0 else self.alpha[0]
+        pred_x0 = ((state - (1.0 - at) ** 0.5 * pred_noise) / at ** 0.5)
+        if t == 0:
+            return pred_x0
+        xt_prev = at_minus_1 ** 0.5 * pred_x0 + (1.0 - at_minus_1) ** 0.5 * pred_noise
+        return xt_prev
+
     def forward(self, batch, is_train=1):
         (
             observed_data,
@@ -212,8 +243,12 @@ class ModelMain(nn.Module):
 
             side_info = self.get_side_info(observed_tp, cond_mask)
 
+            impute_methods = {"ddpm": self.impute, "ddim": self.impute_ddim}
+            diffusion_type = self.config["diffusion"]["type"].lower()
+            impute_method = impute_methods.get(diffusion_type, self.impute)
+
             time_start = time.time()
-            samples = self.impute(observed_data, cond_mask, side_info, n_samples)
+            samples = impute_method(observed_data, cond_mask, side_info, n_samples)
             time_elapsed = time.time() - time_start
             print(f"time to impute ({diffusion_type}): {time_elapsed}")
         return samples, observed_data, target_mask, observed_tp
