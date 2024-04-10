@@ -7,7 +7,6 @@ from utils import forward_kinematics
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-subjects = np.array([[1, 6, 7, 8, 9], [11], [5]])
 actions = ["walking", "eating", "smoking", "discussion", "directions",
            "greeting", "phoning", "posing", "purchases", "sitting",
            "sittingdown", "takingphoto", "waiting", "walkingdog",
