@@ -1,5 +1,6 @@
 import math
 
+import time
 import torch
 import torch.nn as nn
 import numpy as np
@@ -109,6 +110,8 @@ class ModelMain(nn.Module):
     def calc_loss(
             self, observed_data, cond_mask, side_info, is_train, set_t=-1
     ):
+        time_start = time.time()
+
         B, K, L = observed_data.shape
         if is_train != 1:  # for validation
             t = (torch.ones(B) * set_t).long().to(self.device)
@@ -124,6 +127,10 @@ class ModelMain(nn.Module):
 
         target_mask = 1 - cond_mask
         residual = (noise - predicted) * target_mask
+
+        time_elapsed = time.time() - time_start
+        print(f"time to calculate loss: {time_elapsed}")
+
         num_eval = target_mask.sum()
         loss = (residual ** 2).sum() / (num_eval if num_eval > 0 else 1)
         return loss
@@ -147,7 +154,7 @@ class ModelMain(nn.Module):
                 cond_obs = (cond_mask * observed_data).unsqueeze(1)
                 noisy_target = ((1 - cond_mask) * current_sample).unsqueeze(1)
                 diff_input = torch.cat([cond_obs, noisy_target], dim=1)  # (B,2,K,L)
-                
+
                 predicted = self.diffmodel(diff_input, side_info, torch.tensor([t]).to(self.device))
 
                 coeff1 = 1 / self.alpha_hat[t] ** 0.5
@@ -192,7 +199,10 @@ class ModelMain(nn.Module):
 
             side_info = self.get_side_info(observed_tp, cond_mask)
 
+            time_start = time.time()
             samples = self.impute(observed_data, cond_mask, side_info, n_samples)
+            time_elapsed = time.time() - time_start
+            print(f"time to impute ({diffusion_type}): {time_elapsed}")
         return samples, observed_data, target_mask, observed_tp
 
     def process_data(self, batch):
