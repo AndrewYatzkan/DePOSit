@@ -44,7 +44,8 @@ config = {
             'epochs': 100,
             'batch_size': 32,
             'batch_size_test': 32,
-            'lr': 1.0e-3
+            'lr': 1.0e-3,
+            'visualization_frequency': 1 # -1 to disable
         },
     'diffusion':
         {
@@ -55,11 +56,14 @@ config = {
             'beta_start': 0.0001,
             'beta_end': 0.5,
             'num_steps': 50,
-            'schedule': "cosine"
+            'schedule': 'cosine',
+            'type': 'ddim',
+            # 'schedule': "linear",
+            # 'num_steps': 20,
+            # 'type': 'ddim'
         },
     'model':
         {
-            'is_unconditional': 0,
             'timeemb': 128,
             'featureemb': 16
         }
